@@ -1,5 +1,5 @@
-#ifndef RC4_H
-#define RC4_H
+#ifndef RC4_H_
+#define RC4_H_
 
 #include <stdio.h>
 #include <stdlib.h>

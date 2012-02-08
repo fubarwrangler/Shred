@@ -192,15 +192,12 @@ int main(int argc, char *argv[])
 	rc4_init_key(&ctx, key, klen);
 
 	do {
-
 		for(n = 0; n < reps; n++)	{
 			rc4_fill_buf(&ctx, data, bufsize);
 			if(fwrite(data, bufsize, 1, fp) != 1)	{
 				perror("Writing data");
 				exit(1);
 			}
-
-
 			written++;
 			if(total >= 0 && written >= total)	{
 				done = 1;
