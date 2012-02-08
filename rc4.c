@@ -3,16 +3,28 @@
 
 #include "rc4.h"
 
+
+/* Initalize the RC4 state @ctx with @key of length @klen */
 void rc4_init_key(struct rc4_ctx *ctx, unsigned char *key, size_t klen)
 {
     int i;
-    unsigned char j = 0, tmp;
 
     for(i = 0; i < 256; i++)
         ctx->S[i] = i;
 
+    rc4_shuffle_key(ctx, key, klen);
+}
+
+/* Second half of the key-init algorithm, used to preserve state from
+ * last call (ctx doesn't get filled 1-256 in order)
+ */
+void rc4_shuffle_key(struct rc4_ctx *ctx, unsigned char *k, size_t l)
+{
+    int i;
+    unsigned char tmp, j = 0;
+
     for(i = 0; i < 256; i++)    {
-        j = (j + ctx->S[i] + key[i % klen]) & 255;
+        j = (j + ctx->S[i] + k[i % l]) & 255;
 
         tmp = ctx->S[i];
         ctx->S[i] = ctx->S[j];
@@ -20,6 +32,7 @@ void rc4_init_key(struct rc4_ctx *ctx, unsigned char *key, size_t klen)
     }
 }
 
+/* Write @nb bytes of RC4 keystream to @buf from cipher context @ctx */
 void rc4_fill_buf(struct rc4_ctx *ctx, unsigned char *buf, size_t nb)
 {
     unsigned char i, j, k, idx, tmp;
@@ -50,7 +63,7 @@ int main(int argc, char *argv[])
 {
     struct rc4_ctx ctx;
     char buf[1024];
-    int n = 24323424;
+    int n = 456;
 
     if(argc < 2)    {
         puts("Error, requires key argument\n");
