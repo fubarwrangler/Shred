@@ -143,14 +143,29 @@ void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 	}
 }
 
+int write_block(int fd, unsigned char *buf, size_t len)
+{
+	ssize_t written = 0;
+
+	while(written < len)	{
+
+		written += write(fd, buf + written, len - written);
+		if(errno)	{
+			perror("Writing data");
+			exit(1);
+		}
+	}
+	return 1;
+}
+
 
 int main(int argc, char *argv[])
 {
 	unsigned char *data, *key;
 	struct rc4_ctx ctx;
 	size_t written = 0;
-	FILE *fp = stdout;
 	int n, done = 0;
+	int fd = fileno(stdout);
 
 	initialize_options(argc, argv);
 
@@ -178,7 +193,8 @@ int main(int argc, char *argv[])
 	}
 
 	if(fname != NULL)	{
-		if((fp = fopen(fname, "w")) == NULL)	{
+		fd = open(fname, O_CREAT | O_WRONLY, 0664);
+		if(fd < 0)	{
 			char warn[2048];
 			snprintf(warn, 2047, "Opening '%s' for writing", fname);
 			perror(warn);
@@ -194,11 +210,9 @@ int main(int argc, char *argv[])
 	do {
 		for(n = 0; n < reps; n++)	{
 			rc4_fill_buf(&ctx, data, bufsize);
-			if(fwrite(data, bufsize, 1, fp) != 1)	{
-				perror("Writing data");
-				exit(1);
-			}
-			written++;
+
+			written += write_block(fd, data, bufsize);
+
 			if(total >= 0 && written >= total)	{
 				done = 1;
 				break;
@@ -221,7 +235,7 @@ int main(int argc, char *argv[])
 			written, (float)((written * bufsize) / 1000000.0 ));
 
 	if(fname != NULL)
-		fclose(fp);
+		close(fd);
 
 	free(data);
 	free(key);
