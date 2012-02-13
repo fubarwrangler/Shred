@@ -23,15 +23,16 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "rc4.h"
 
 /* Length of the key to read from /dev/urandom each re-initialization */
-static unsigned int klen = 32;
+static size_t klen = 32;
 /* Size of the buffer to write at a time */
-static unsigned int bufsize = 4096;
+static size_t bufsize = 4096;
 /* Number of buffers to write before re-initalization of cipher */
-static unsigned int reps = 8192 << 3;
+static size_t reps = 8192 << 3;
 /* Total number of bytes to output */
 static long int total = -1;
 /* Filename to write to, stdout if NULL */
@@ -40,7 +41,32 @@ static char *fname = NULL;
 static int print_conf = 0;
 /* Debug messages along the way */
 static int debug = 0;
+/* Break out of loop */
+static int done = 0;
 
+
+static void sigint_handler(int signum)
+{
+	done = 1;
+	if(debug || print_conf)
+		fputs("\nCaught SIGINT, stop after next block...", stderr);
+	if(print_conf && !debug)
+		fputc('\n', stderr);
+}
+
+static void setup_signals(void)
+{
+	struct sigaction new_action;
+	sigset_t self;
+
+	sigemptyset(&self);
+	sigaddset(&self, SIGINT);
+	new_action.sa_handler = sigint_handler;
+	new_action.sa_mask = self;
+	new_action.sa_flags = 0;
+
+	sigaction(SIGINT, &new_action, NULL);
+}
 
 /* Get a positive integer out of the current optarg (option @c) or exit */
 static long int parse_num(int c)
@@ -58,7 +84,7 @@ static long int parse_num(int c)
 }
 
 /* Set the configuration options above from cmdline */
-static void initialize_options(int argc, char *argv[])
+void initialize_options(int argc, char *argv[])
 {
 	int c;
 
@@ -127,7 +153,7 @@ static void initialize_options(int argc, char *argv[])
 }
 
 /* Read @len random bytes from /dev/urandom into @buf */
-void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
+static void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 {
 	int fd;
 	fd = open(rand_device, O_RDONLY);
@@ -143,17 +169,24 @@ void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 	}
 }
 
-int write_block(int fd, unsigned char *buf, size_t len)
+static int write_block(int fd, unsigned char *buf, size_t len)
 {
-	ssize_t written = 0;
+	size_t written = 0;
+	ssize_t this_write = 0;
 
 	while(written < len)	{
 
-		written += write(fd, buf + written, len - written);
-		if(errno)	{
+		this_write = write(fd, buf + written, len - written);
+
+		if(errno || this_write < 0)	{
+			if(errno == ENOSPC)	{
+				fputs("\nNo space left, exiting\n", stderr);
+				exit(0);
+			}
 			perror("Writing data");
 			exit(1);
 		}
+		written += this_write;
 	}
 	return 1;
 }
@@ -162,10 +195,11 @@ int write_block(int fd, unsigned char *buf, size_t len)
 int main(int argc, char *argv[])
 {
 	unsigned char *data, *key;
+	unsigned char tmpdata[8];
+	unsigned int n;
 	struct rc4_ctx ctx;
 	size_t written = 0;
-	int n, done = 0;
-	int fd = fileno(stdout);
+	int fd;
 
 	initialize_options(argc, argv);
 
@@ -176,7 +210,6 @@ int main(int argc, char *argv[])
 		fputs("Memory allocation error\n", stderr);
 		return 1;
 	}
-
 
 	if(print_conf)	{
 		char tstr[64];
@@ -200,23 +233,26 @@ int main(int argc, char *argv[])
 			perror(warn);
 			exit(1);
 		}
+	} else {
+		fd = fileno(stdout);
 	}
 
 	if(debug) fprintf(stderr, "Initalizing key with %d bytes\n", klen);
-	/* First pass truly init the key */
-	read_random_bytes("/dev/random", key, klen);
-	rc4_init_key(&ctx, key, klen);
+
+	/* First pass init key with 64 truly random bits */
+	read_random_bytes("/dev/random", tmpdata, 8);
+	rc4_init_key(&ctx, tmpdata, 8);
+
+	setup_signals();
 
 	do {
-		for(n = 0; n < reps; n++)	{
+		for(n = 0; n < reps && !done; n++)	{
 			rc4_fill_buf(&ctx, data, bufsize);
 
 			written += write_block(fd, data, bufsize);
 
-			if(total >= 0 && written >= total)	{
+			if(total >= 0 && written >= total)
 				done = 1;
-				break;
-			}
 		}
 		read_random_bytes("/dev/urandom", key, klen);
 
@@ -225,13 +261,13 @@ int main(int argc, char *argv[])
 
 		if(debug && !done)
 			fprintf(stderr,
-				"Reinitalizing key, %ld blocks so far (%.3f Mb)\r",
+				"Reinitalizing key, %d blocks so far (%.3f Mb)\r",
 				written, (float)((written * bufsize) / 1000000.0));
 	} while(!done);
 
 	if(debug)
 		fprintf(stderr,
-			"\nFinished, %ld blocks (%.3f Mb) written in total\n",
+			"\nFinished, %d blocks (%.3f Mb) written in total\n",
 			written, (float)((written * bufsize) / 1000000.0 ));
 
 	if(fname != NULL)
@@ -239,8 +275,6 @@ int main(int argc, char *argv[])
 
 	free(data);
 	free(key);
-
-
 
 	return 0;
 }
