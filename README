@@ -1,0 +1,17 @@
+SHRED -- disk shredding utility.
+
+For when "dd if=/dev/urandom of=/dev/sdb bs=4M" is too slow to shred your disks
+with...
+
+I get about 17Mb/s on a core 2 quad 2.6GHz doing "dd if=/dev/urandom
+of=/dev/null bs=4M", which sucks, so I wrote this.
+
+The RC4 cipher is used and the state is periodically re-initalized with a few
+bytes from /dev/urandom.  This can generate a stream of about 305Mb/s on the
+aforementioned processor writing to /dev/null.  That is more than sufficient to
+saturate a spinning disk (17Mb/s is sadly not).  One of these per disk and
+shredding is done quite quickly.
+
+This is not for the truly paranoid, because the RC4 cipher is not exactly
+perfect, but the periodic reinitalization should be good enough.
+
