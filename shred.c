@@ -32,7 +32,7 @@ static size_t klen = 32;
 /* Size of the buffer to write at a time */
 static size_t bufsize = 4096;
 /* Number of buffers to write before re-initalization of cipher */
-static size_t reps = 8192 << 3;
+static size_t reps = 8192 << 2;
 /* Total number of bytes to output */
 static long int total = -1;
 /* Filename to write to, stdout if NULL */
@@ -45,6 +45,7 @@ static int debug = 0;
 static int done = 0;
 
 
+/* If sigint, set done=1 and break out of main loop cleanly */
 static void sigint_handler(int signum)
 {
 	done = 1;
@@ -54,6 +55,7 @@ static void sigint_handler(int signum)
 		fputc('\n', stderr);
 }
 
+/* Setup signal handler */
 static void setup_signals(void)
 {
 	struct sigaction new_action;
@@ -100,7 +102,6 @@ void initialize_options(int argc, char *argv[])
 						  stderr);
 					klen = 256;
 				}
-
 				break;
 			case 'b':
 				bufsize = parse_num(c);
@@ -110,7 +111,7 @@ void initialize_options(int argc, char *argv[])
 				break;
 			case 'h':
 				fprintf(stderr,
-"Usage: %s [-kbrnh] [dest]\n\
+"Usage: %s [OPTION] [DESTINATION]\n\
   Options:\n\
     -n  total number of blocks to write, default unlimited\n\
     -b  block size to write at a time, default 4096\n\
@@ -119,7 +120,7 @@ void initialize_options(int argc, char *argv[])
     -p  print the configuration used to stderr\n\
     -d  debug, print processing messages to stderr (implies -p)\n\n\
   Arguments:\n\
-    dest  optional output destination, defaults to stdout\n\
+    DESTINATION  optional output destination, defaults to stdout\n\n\
 ", argv[0]);
 				exit(0);
 			case 'd':
@@ -169,6 +170,9 @@ static void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 	}
 }
 
+/* Write @len bytes from @buf out to file descriptor @fd.
+ * Return 1 on success, 0 on full device, exit on failure
+ */
 static int write_block(int fd, unsigned char *buf, size_t len)
 {
 	size_t written = 0;
@@ -180,12 +184,14 @@ static int write_block(int fd, unsigned char *buf, size_t len)
 
 		if(errno || this_write < 0)	{
 			if(errno == ENOSPC)	{
-				fputs("\nNo space left, exiting\n", stderr);
-				exit(0);
+				fputs("No space left, exiting", stderr);
+				done = 1;
+				return 0;
 			}
 			perror("Writing data");
 			exit(1);
 		}
+
 		written += this_write;
 	}
 	return 1;
@@ -218,7 +224,7 @@ int main(int argc, char *argv[])
 		else snprintf(tstr, 63, "%ld", total);
 
 		fprintf(stderr,
-			"Block size: %d\nBlocks / key: %d\nKey bytes: %d\n"
+			"Block size: %ld\nBlocks / key: %ld\nKey bytes: %ld\n"
 			"Total: %s\nDestination: %s\n",
 			bufsize, reps, klen, tstr,
 			(fname == NULL) ? "(stdout)" : fname);
@@ -237,7 +243,7 @@ int main(int argc, char *argv[])
 		fd = fileno(stdout);
 	}
 
-	if(debug) fprintf(stderr, "Initalizing key with %d bytes\n", klen);
+	if(debug) fprintf(stderr, "Initalizing key with %ld bytes\n", klen);
 
 	/* First pass init key with 64 truly random bits */
 	read_random_bytes("/dev/random", tmpdata, 8);
@@ -261,20 +267,25 @@ int main(int argc, char *argv[])
 
 		if(debug && !done)
 			fprintf(stderr,
-				"Reinitalizing key, %d blocks so far (%.3f Mb)\r",
+				"Reinitalizing key, %ld blocks so far (%.3f Mb)\r",
 				written, (float)((written * bufsize) / 1000000.0));
 	} while(!done);
 
-	if(debug)
-		fprintf(stderr,
-			"\nFinished, %d blocks (%.3f Mb) written in total\n",
-			written, (float)((written * bufsize) / 1000000.0 ));
-
-	if(fname != NULL)
-		close(fd);
+	if(fsync(fd) < 0)	{
+		if(errno == EIO || errno == EBADF)	{
+			perror("Final sync");
+			return 1;
+		}
+	}
 
 	free(data);
 	free(key);
+
+	fprintf(stderr, "\nFinished, %ld blocks (%.3f Mb) written in total\n",
+					written, (float)((written * bufsize) / 1000000.0 ));
+
+	if(fname != NULL)
+		close(fd);
 
 	return 0;
 }
