@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <signal.h>
 
 #include "rc4.h"
@@ -32,17 +33,17 @@ static size_t klen = 32;
 /* Size of the buffer to write at a time */
 static size_t bufsize = 4096;
 /* Number of buffers to write before re-initalization of cipher */
-static size_t reps = 8192 << 2;
+static size_t reps = (8192 << 2);
 /* Total number of bytes to output */
-static long int total = -1;
+static size_t total = 0;
 /* Filename to write to, stdout if NULL */
 static char *fname = NULL;
 /* Print the configuration to stderr */
-static int print_conf = 0;
+static bool print_conf = 0;
 /* Debug messages along the way */
-static int debug = 0;
+static bool debug = 0;
 /* Break out of loop */
-static int done = 0;
+static bool done = 0;
 
 
 /* If sigint, set done=1 and break out of main loop cleanly */
@@ -77,16 +78,16 @@ static long int parse_num(int c)
 	long int n;
 
 	errno = 0;
-	n = strtoul(optarg, &p, 10);
-	if(errno || *p != '\0' || n < 0)	{
+	n = strtol(optarg, &p, 10);
+	if(errno != 0 || *p != '\0' || n < 0)	{
 		fprintf(stderr, "Error -%c requires a positive integer\n", c);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	return n;
 }
 
 /* Set the configuration options above from cmdline */
-void initialize_options(int argc, char *argv[])
+static void initialize_options(int argc, char *argv[])
 {
 	int c;
 
@@ -122,7 +123,7 @@ void initialize_options(int argc, char *argv[])
   Arguments:\n\
     DESTINATION  optional output destination, defaults to stdout\n\n\
 ", argv[0]);
-				exit(0);
+				exit(EXIT_SUCCESS);
 			case 'd':
 				debug = 1;
 			case 'p':
@@ -135,21 +136,17 @@ void initialize_options(int argc, char *argv[])
 				else
 					fprintf(stderr,
 						"Option -%c requires an argument\n", optopt);
-				exit(1);
+				exit(EXIT_FAILURE);
 			default:
 				abort();
 		}
 	}
 
 	if(optind + 1 == argc)	{
-		fname = strdup(argv[optind]);
-		if(fname == NULL)	{
-			fputs("Error no memory for filename\n", stderr);
-			exit(1);
-		}
+		fname = argv[optind];
 	} else if(optind != argc) {
 		fprintf(stderr, "Invalid/too many arguments found\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 }
 
@@ -166,14 +163,14 @@ static void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 		close(fd);
 	} else {
 		perror("Random device");
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 }
 
 /* Write @len bytes from @buf out to file descriptor @fd.
  * Return 1 on success, 0 on full device, exit on failure
  */
-static int write_block(int fd, unsigned char *buf, size_t len)
+static bool write_block(int fd, unsigned char *buf, size_t len)
 {
 	size_t written = 0;
 	ssize_t this_write = 0;
@@ -186,15 +183,15 @@ static int write_block(int fd, unsigned char *buf, size_t len)
 			if(errno == ENOSPC)	{
 				fputs("No space left, exiting", stderr);
 				done = 1;
-				return 0;
+				return false;
 			}
 			perror("Writing data");
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 
 		written += this_write;
 	}
-	return 1;
+	return true;
 }
 
 
@@ -214,13 +211,13 @@ int main(int argc, char *argv[])
 
 	if(data == NULL || key == NULL)	{
 		fputs("Memory allocation error\n", stderr);
-		return 1;
+		return EXIT_FAILURE;
 	}
 
 	if(print_conf)	{
 		char tstr[64];
 
-		if(total < 0) strcpy(tstr, "(unlimited)");
+		if(total == 0) strcpy(tstr, "(unlimited)");
 		else snprintf(tstr, 63, "%ld", total);
 
 		fprintf(stderr,
@@ -237,7 +234,7 @@ int main(int argc, char *argv[])
 			char warn[2048];
 			snprintf(warn, 2047, "Opening '%s' for writing", fname);
 			perror(warn);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	} else {
 		fd = fileno(stdout);
@@ -257,7 +254,7 @@ int main(int argc, char *argv[])
 
 			written += write_block(fd, data, bufsize);
 
-			if(total >= 0 && written >= total)
+			if(total > 0 && written >= total)
 				done = 1;
 		}
 		read_random_bytes("/dev/urandom", key, klen);
@@ -274,7 +271,7 @@ int main(int argc, char *argv[])
 	if(fsync(fd) < 0)	{
 		if(errno == EIO || errno == EBADF)	{
 			perror("Final sync");
-			return 1;
+			return EXIT_FAILURE;
 		}
 	}
 
@@ -287,5 +284,5 @@ int main(int argc, char *argv[])
 	if(fname != NULL)
 		close(fd);
 
-	return 0;
+	return EXIT_SUCCESS;
 }
