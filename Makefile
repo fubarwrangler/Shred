@@ -1,4 +1,4 @@
-CFLAGS= -O3 -march=core2 -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=2
+CFLAGS= -O3 -march=core2 -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
 PREFIX= /usr
 
 shred: rc4.o shred.o

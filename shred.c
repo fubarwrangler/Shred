@@ -76,14 +76,41 @@ static long int parse_num(int c)
 {
 	char *p;
 	long int n;
+	unsigned long int mult;
 
 	errno = 0;
 	n = strtol(optarg, &p, 10);
-	if(errno != 0 || *p != '\0' || n < 0)	{
+	if(errno != 0 || n < 0)	{
 		fprintf(stderr, "Error -%c requires a positive integer\n", c);
 		exit(EXIT_FAILURE);
 	}
-	return n;
+
+	switch(*p)	{
+		case '\0':
+			return n;
+		case 'K':
+			mult = (10L * 10L * 10L); break;
+		case 'k':
+			mult = (1 << 10); break;
+		case 'M':
+			mult = (1000L * 1000L); break;
+		case 'm':
+			mult = (1 << 20); break;
+			break;
+		case 'G':
+			mult = (1000000L * 1000000L); break;
+		case 'g':
+			mult = (1 << 30); break;
+			break;
+		default:
+			fprintf(stderr, "Invalid multiplier character found: %c, must be K/k/M/m/G/g\n", *p);
+			exit(EXIT_FAILURE);
+	}
+	if(*(p+1) != '\0')	{
+		fprintf(stderr, "Invalid character found after multiplier: %c\n", *(p+1));
+		exit(EXIT_FAILURE);
+	}
+	return n * mult;
 }
 
 /* Set the configuration options above from cmdline */
@@ -122,6 +149,13 @@ static void initialize_options(int argc, char *argv[])
     -d  debug, print processing messages to stderr (implies -p)\n\n\
   Arguments:\n\
     DESTINATION  optional output destination, defaults to stdout\n\n\
+  Notes:\n\
+    Any numeric value can be postfixed with a multiplier, one of the\n\
+    following letters:\n\
+      k/K m/M g/G\n\
+    for kilo, mega, or giga-byte. The lower-case versions return the power\n\
+    of two nearest (1k = 1024), and the upper-case returns an exact power of\n\
+    ten (1K = 1000).\n\
 ", argv[0]);
 				exit(EXIT_SUCCESS);
 			case 'd':
