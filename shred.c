@@ -103,14 +103,19 @@ static long int parse_num(int c)
 			mult = (1 << 30); break;
 			break;
 		default:
-			fprintf(stderr, "Invalid multiplier character found: %c, must be K/k/M/m/G/g\n", *p);
+			fprintf(stderr,
+				"Invalid multiplier character found for -%c: %c, "
+				"must be K/k/M/m/G/g\n", c, *p);
 			exit(EXIT_FAILURE);
 	}
-	if(*(p+1) != '\0')	{
-		fprintf(stderr, "Invalid character found after multiplier: %c\n", *(p+1));
-		exit(EXIT_FAILURE);
-	}
-	return n * mult;
+
+	if(*(p + 1) == '\0' || (*(p + 1) == 'b' && *(p + 2) == '\0'))
+		return n * mult;
+
+	fprintf(stderr, "Invalid character found after multiplier for"
+		" -%c: %c\n", c, *(p+1));
+
+	exit(EXIT_FAILURE);
 }
 
 /* Set the configuration options above from cmdline */
