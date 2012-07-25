@@ -10,6 +10,7 @@ struct rc4_ctx {
 
 void rc4_init_key(struct rc4_ctx *ctx, unsigned char *key, size_t klen);
 void rc4_fill_buf(struct rc4_ctx *ctx, unsigned char *buf, size_t nb);
+void rc4_xor_stream(struct rc4_ctx *ctx, unsigned char *buf, size_t n);
 void rc4_shuffle_key(struct rc4_ctx *ctx, unsigned char *k, size_t l);
 
 #endif

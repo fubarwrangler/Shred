@@ -3,16 +3,15 @@
 
 #include "rc4.h"
 
-
 /* Initalize the RC4 state @ctx with @key of length @klen */
 void rc4_init_key(struct rc4_ctx *ctx, unsigned char *key, size_t klen)
 {
-    int i;
+	int i;
 
-    for(i = 0; i < 256; i++)
-        ctx->S[i] = i;
+	for(i = 0; i < 256; i++)
+		ctx->S[i] = i;
 
-    rc4_shuffle_key(ctx, key, klen);
+	rc4_shuffle_key(ctx, key, klen);
 }
 
 /* Second half of the key-init algorithm, used to preserve state from
@@ -20,40 +19,62 @@ void rc4_init_key(struct rc4_ctx *ctx, unsigned char *key, size_t klen)
  */
 void rc4_shuffle_key(struct rc4_ctx *ctx, unsigned char *k, size_t l)
 {
-    int i;
-    unsigned char tmp, j = 0;
+	int i;
+	unsigned char tmp, j = 0;
 
-    for(i = 0; i < 256; i++)    {
-        j = (j + ctx->S[i] + k[i % l]) & 255;
+	for(i = 0; i < 256; i++)    {
+		j = (j + ctx->S[i] + k[i % l]) & 255;
 
-        tmp = ctx->S[i];
-        ctx->S[i] = ctx->S[j];
-        ctx->S[j] = tmp;
-    }
+		tmp = ctx->S[i];
+		ctx->S[i] = ctx->S[j];
+		ctx->S[j] = tmp;
+	}
 }
 
 /* Write @nb bytes of RC4 keystream to @buf from cipher context @ctx */
 void rc4_fill_buf(struct rc4_ctx *ctx, unsigned char *buf, size_t nb)
 {
-    unsigned char i, j, k, idx, tmp;
-    unsigned char *state = ctx->S;
-    size_t n = 0;
+	unsigned char i, j, k, idx, tmp;
+	unsigned char *state = ctx->S;
+	size_t n = 0;
 
-    i = j = k = 0;
+	i = j = k = 0;
 
-    do
-    {
-        i = (i + 1) & 255;
-        j = (j + state[i]) & 255;
+	do
+	{
+		i = (i + 1) & 255;
+		j = (j + state[i]) & 255;
 
-        tmp = state[i];
-        state[i] = state[j];
-        state[j] = tmp;
+		tmp = state[i];
+		state[i] = state[j];
+		state[j] = tmp;
 
-        idx = (state[i] + state[j]) & 255;
+		idx = (state[i] + state[j]) & 255;
 
-        *(buf + n) = state[idx];
-    } while(++n < nb);
+		*(buf + n) = state[idx];
+	} while(++n < nb);
+}
+
+/* XOR a buffer with the keystream */
+void rc4_xor_stream(struct rc4_ctx *ctx, unsigned char *buf, size_t n)
+{
+	unsigned char i, j, k, tmp;
+	unsigned char *state = ctx->S;
+	size_t ctr = 0;
+
+	i = j = k = 0;
+
+	do
+	{
+		i = (i + 1) & 255;
+		j = (j + state[i]) & 255;
+
+		tmp = state[i];
+		state[i] = state[j];
+		state[j] = tmp;
+
+		*(buf + ctr) ^= state[(state[i] + state[j]) & 255];
+	} while(++ctr < n);
 }
 
 #ifdef TEST
@@ -61,21 +82,21 @@ void rc4_fill_buf(struct rc4_ctx *ctx, unsigned char *buf, size_t nb)
 
 int main(int argc, char *argv[])
 {
-    struct rc4_ctx ctx;
-    char buf[1024];
-    int n = 456;
+	struct rc4_ctx ctx;
+	char buf[1024];
+	int n = 456;
 
-    if(argc < 2)    {
-        puts("Error, requires key argument\n");
-        return 1;
-    }
-    rc4_init_key(&ctx, argv[1], strlen(argv[1]));
-    while(n--)  {
-        rc4_fill_buf(&ctx, buf, 1024);
-        fwrite(buf, 1024, 1, stdout);
-    }
+	if(argc < 2)    {
+		puts("Error, requires key argument\n");
+		return 1;
+	}
+	rc4_init_key(&ctx, argv[1], strlen(argv[1]));
+	while(n--)  {
+		rc4_fill_buf(&ctx, buf, 1024);
+		fwrite(buf, 1024, 1, stdout);
+	}
 
-    return 0;
+	return 0;
 }
 
 #endif

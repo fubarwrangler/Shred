@@ -33,7 +33,7 @@ static size_t klen = 32;
 /* Size of the buffer to write at a time */
 static size_t bufsize = 4096;
 /* Number of buffers to write before re-initalization of cipher */
-static size_t reps = (8192 << 2);
+static size_t reps = 8192;
 /* Total number of bytes to output */
 static size_t total = 0;
 /* Filename to write to, stdout if NULL */
@@ -41,15 +41,15 @@ static char *fname = NULL;
 /* Print the configuration to stderr */
 static bool print_conf = 0;
 /* Debug messages along the way */
-static bool debug = 0;
+static bool debug = false;
 /* Break out of loop */
-static bool done = 0;
+static bool done = false;
 
 
 /* If sigint, set done=1 and break out of main loop cleanly */
 static void sigint_handler(int signum)
 {
-	done = 1;
+	done = true;
 	if(debug || print_conf)
 		fputs("\nCaught SIGINT, stop after next block...", stderr);
 	if(print_conf && !debug)
@@ -209,7 +209,7 @@ static void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 /* Write @len bytes from @buf out to file descriptor @fd.
  * Return 1 on success, 0 on full device, exit on failure
  */
-static bool write_block(int fd, unsigned char *buf, size_t len)
+static int write_block(int fd, unsigned char *buf, size_t len)
 {
 	size_t written = 0;
 	ssize_t this_write = 0;
@@ -221,8 +221,8 @@ static bool write_block(int fd, unsigned char *buf, size_t len)
 		if(errno || this_write < 0)	{
 			if(errno == ENOSPC)	{
 				fputs("No space left, exiting", stderr);
-				done = 1;
-				return false;
+				done = true;
+				return 0;
 			}
 			perror("Writing data");
 			exit(EXIT_FAILURE);
@@ -230,7 +230,7 @@ static bool write_block(int fd, unsigned char *buf, size_t len)
 
 		written += this_write;
 	}
-	return true;
+	return 1;
 }
 
 
@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
 			written += write_block(fd, data, bufsize);
 
 			if(total > 0 && written >= total)
-				done = 1;
+				done = true;
 		}
 		read_random_bytes("/dev/urandom", key, klen);
 
@@ -307,15 +307,15 @@ int main(int argc, char *argv[])
 				written, (float)((written * bufsize) / 1000000.0));
 	} while(!done);
 
+	free(data);
+	free(key);
+
 	if(fsync(fd) < 0)	{
 		if(errno == EIO || errno == EBADF)	{
 			perror("Final sync");
 			return EXIT_FAILURE;
 		}
 	}
-
-	free(data);
-	free(key);
 
 	fprintf(stderr, "\nFinished, %ld blocks (%.3f Mb) written in total\n",
 					written, (float)((written * bufsize) / 1000000.0 ));
