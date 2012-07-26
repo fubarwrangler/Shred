@@ -13,32 +13,38 @@
 #include "rc4.h"
 
 
-static char   passphrase[256] = {0};
+static unsigned char passphrase[256] = {0};
 static size_t passlen = 0;
 static bool   have_pass = false;
 static char  *input_file = NULL;
 static char  *output_file = NULL;
 
 
-/* Stupid, but apparently getpass() is deprecated */
-static void read_password_terminal(char *prompt)
+static inline void err_exit(char *str)
+{
+	perror(str);
+	exit(EXIT_FAILURE);
+}
+
+
+/* Apparently getpass() is deprecated, and this should be portable */
+static void read_password_terminal(char *prompt, unsigned char *password, size_t *len)
 {
 	struct termios oldterm, newterm;
 	ssize_t n = 0;
 	ssize_t plen = strlen(prompt);
-	int i = 0;
-	int fd;
+	size_t i = 0;
 	char c;
+	int fd;
 
 	if(!isatty(fileno(stdin)))	{
-		if((fd = open("/dev/tty", O_RDWR)) < 0)	{
-			perror("Open terminal");
-			exit(EXIT_FAILURE);
-		}
+		if((fd = open("/dev/tty", O_RDWR)) < 0)
+			err_exit("Open terminal");
 	} else {
 		fd = fileno(stdin);
 	}
 
+	/* Must write this way since we may be a terminal w/o a stdio handle */
 	do {
 		n += write(fd, prompt, plen - n);
 	} while(n < plen);
@@ -50,23 +56,21 @@ static void read_password_terminal(char *prompt)
 	newterm.c_lflag &= ~(ECHO);
 	newterm.c_lflag |= ECHONL;
 
-
 	/*setting the new bits*/
 	tcsetattr(fd, TCSANOW, &newterm);
 
 	while (i < 255)	{
 
 		n = read(fd, &c, 1);
-		if(n < 1)	{
-			perror("Reading from terminal");
-			exit(EXIT_FAILURE);
-		}
+		if(n < 1)
+			err_exit("Reading from terminal");
 		if(c == '\n')
 			break;
 
-		passphrase[i++] = c;
+		password[i++] = c;
 	}
-	passphrase[i] = '\0';
+	password[i] = '\0';
+	*len = i;
 
 	/* resetting our old terminal settings */
 	tcsetattr(fd, TCSANOW, &oldterm);
@@ -114,7 +118,7 @@ static void initialize_options(int argc, char *argv[])
 					exit(EXIT_FAILURE);
 				}
 				passlen = strlen(optarg) < 255 ? strlen(optarg) : 255;
-				strncpy(&passphrase[0], optarg, 255);
+				memmove(passphrase, optarg, passlen);
 				have_pass = true;
 				break;
 			case 'f':
@@ -153,7 +157,7 @@ static void initialize_options(int argc, char *argv[])
 	}
 }
 
-#define BUF_SIZE 1024
+#define BUF_SIZE 4096
 
 int main(int argc, char *argv[])
 {
@@ -164,7 +168,8 @@ int main(int argc, char *argv[])
 
 	initialize_options(argc, argv);
 
-	read_password_terminal("Password: ");
+	if(!have_pass)
+		read_password_terminal("Password: ", passphrase, &passlen);
 
 	rc4_init_key(&ctx, passphrase, passlen);
 
@@ -186,16 +191,12 @@ int main(int argc, char *argv[])
 
 		rc4_xor_stream(&ctx, buf, nread);
 
-		if(fwrite(buf, 1, nread, fp_out) != nread)	{
-			fprintf(stderr, "ERROR: write-error to output file\n");
-			return 1;
-		}
-
+		if(fwrite(buf, 1, nread, fp_out) != nread)
+			err_exit("write-error to output file");
 	}
 
 	fclose(fp_in);
 	fclose(fp_out);
-
 
 	return 0;
 }
