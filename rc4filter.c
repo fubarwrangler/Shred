@@ -1,3 +1,5 @@
+/* vim: set ts=4 sw=4 noexpandtab: */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,15 +14,20 @@
 
 #include "rc4.h"
 
+#define DEF_BUFSIZE	(1 << 12)	/* page size? */
+
 
 static unsigned char passphrase[256] = {0};
 static size_t passlen = 0;
 static bool   have_pass = false;
+
 static char  *input_file = NULL;
 static char  *output_file = NULL;
 
+static size_t bufsize = DEF_BUFSIZE;
 
-static inline void err_exit(char *str)
+
+static inline void err_exit(const char *str)
 {
 	perror(str);
 	exit(EXIT_FAILURE);
@@ -28,7 +35,8 @@ static inline void err_exit(char *str)
 
 
 /* Apparently getpass() is deprecated, and this should be portable */
-static void read_password_terminal(char *prompt, unsigned char *password, size_t *len)
+static void read_password_terminal(
+	const char *prompt, unsigned char *password, size_t *len)
 {
 	struct termios oldterm, newterm;
 	ssize_t n = 0;
@@ -110,7 +118,7 @@ static void initialize_options(int argc, char *argv[])
 	/* Use getopt_long here because with POSIX feature-tets-macro set we don't
 	 * permute option strings, but we want to because we're lazy
 	 */
-	while((c=getopt_long(argc, argv, "hp:f:", NULL, NULL)) != -1)	{
+	while((c=getopt_long(argc, argv, "hp:f:b:", NULL, NULL)) != -1)	{
 		switch(c)	{
 			case 'p':
 				if(optarg == NULL)	{
@@ -125,12 +133,15 @@ static void initialize_options(int argc, char *argv[])
 				read_passfile(optarg);
 				have_pass = true;
 				break;
+			case 'b':
+
 			case 'h':
 				fprintf(stderr,
 "Usage: %s [OPTION] [INPUT] [OUTPUT]\n\
   Options:\n\
     -p  passphrase to use, if not given prompt from user on stdin\n\
-    -f  pass-file to use, read contents of file and user as passphrase\n\n\
+    -f  pass-file to use, read contents of file and user as passphrase\n\
+    -b  block-size to use (default %ld)\n\n\
   Arguments:\n\
     INPUT   optional input file, if not given or given as '-', read stdin\n\
     OUTPUT  optional output file, if not given write to stdout\n\n\
@@ -138,7 +149,7 @@ static void initialize_options(int argc, char *argv[])
     If reading from stdin, the user will be asked to provide a password\n\
     from the terminal, so unless -p or -f is specified, the program needs \n\
     a controlling terminal or it will throw an error.\n\
-", argv[0]);
+", argv[0], bufsize);
 				exit(EXIT_SUCCESS);
 			case '?':
 				exit(EXIT_FAILURE);
@@ -157,21 +168,31 @@ static void initialize_options(int argc, char *argv[])
 	}
 }
 
-#define BUF_SIZE 4096
-
 int main(int argc, char *argv[])
 {
 	FILE *fp_in, *fp_out;
-	unsigned char buf[BUF_SIZE];
+	unsigned char *buf;
 	struct rc4_ctx ctx;
 	size_t nread;
+
+	if((buf = malloc(bufsize * sizeof(unsigned char))) == NULL)	{
+		fprintf(stderr, "ERROR: allocating %ld bytes for buffer!?", bufsize);
+		return 1;
+	}
 
 	initialize_options(argc, argv);
 
 	if(!have_pass)
 		read_password_terminal("Password: ", passphrase, &passlen);
 
+	if(passlen == 0)	{
+		fputs("WARNING: zero-length password, using 1 null byte\n", stderr);
+		passlen += 1;
+	}
+
 	rc4_init_key(&ctx, passphrase, passlen);
+
+	memset(passphrase, 0xff, 256);
 
 	if(input_file == NULL)	{
 		fp_in = stdin;
@@ -187,7 +208,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	while((nread = fread(buf, 1, BUF_SIZE, fp_in)) != 0)	{
+	while((nread = fread(buf, 1, bufsize, fp_in)) != 0)	{
 
 		rc4_xor_stream(&ctx, buf, nread);
 
@@ -197,6 +218,8 @@ int main(int argc, char *argv[])
 
 	fclose(fp_in);
 	fclose(fp_out);
+
+	free(buf);
 
 	return 0;
 }

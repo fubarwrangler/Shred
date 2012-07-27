@@ -15,3 +15,7 @@ shredding is done quite quickly.
 This is not for the truly paranoid, because the RC4 cipher is not exactly
 perfect, but the periodic reinitalization should be good enough.
 
+
+RC4FILTER -- very simple, insecure, stream-cipher based encryption program
+             for files and streams.
+
