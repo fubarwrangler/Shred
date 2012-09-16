@@ -1,4 +1,4 @@
-CFLAGS= -O2 -march=core2 -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+CFLAGS= -g -march=core2 -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
 PREFIX= /usr
 
 all: shred rc4filter spin
@@ -10,7 +10,7 @@ rc4filter: rc4.o rc4filter.o
 	$(CC) -o rc4filter $^
 
 spin: rc4.o spin.o
-	$(CC) -o spin $^
+	$(CC) -o spin -lm $^
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $^

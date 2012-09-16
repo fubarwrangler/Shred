@@ -25,19 +25,51 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <math.h>
+#include <sys/time.h>
 
 #include "rc4.h"
 
 double total_time = -1.0;
 size_t total_ram = (1 << 22);
 
+/* If sigint, set done=1 and break out of main loop cleanly */
+static void sigint_handler(int signum)
+{
+	exit(0);
+}
 
+/* Setup signal handler */
+static void setup_signals(void)
+{
+	struct sigaction new_action;
+	sigset_t self;
+
+	sigemptyset(&self);
+	sigaddset(&self, SIGVTALRM);
+	new_action.sa_handler = sigint_handler;
+	new_action.sa_mask = self;
+	new_action.sa_flags = 0;
+
+	sigaction(SIGVTALRM, &new_action, NULL);
+}
+
+
+unsigned long int ipow(unsigned int a, unsigned int b)
+{
+	unsigned long int ans = 1;
+
+	while(b--)
+		ans *= (unsigned long int)a;
+
+	return ans;
+}
 
 /* Get a positive integer out of the current optarg (option @c) or exit */
 static unsigned long int parse_num(int c)
 {
 	char *p;
-	unsigned long int n;
+	long int n;
 	unsigned long int mult;
 
 	errno = 0;
@@ -51,18 +83,17 @@ static unsigned long int parse_num(int c)
 		case '\0':
 			return n;
 		case 'K':
-			mult = (10L * 10L * 10L); break;
+			mult = ipow(10, 3); break;
 		case 'k':
-			mult = (1 << 10); break;
+			mult = ipow(2, 10); break;
 		case 'M':
-			mult = (1000L * 1000L); break;
+			mult = ipow(10, 6); break;
 		case 'm':
-			mult = (1 << 20); break;
-			break;
+			mult = ipow(2, 20); break;
 		case 'G':
-			mult = (1000000L * 1000000L); break;
+			mult = ipow(10, 9); break;
 		case 'g':
-			mult = (1 << 30); break;
+			mult = ipow(2, 30); break;
 			break;
 		default:
 			fprintf(stderr,
@@ -136,6 +167,21 @@ static void initialize_options(int argc, char *argv[])
 	}
 }
 
+static void set_timer(double secs)
+{
+	struct itimerval newt;
+	struct timeval t;
+
+	t.tv_sec = floor(secs);
+	t.tv_usec = (secs - floor(secs)) * pow(10, 6);
+	newt.it_interval = t;
+	newt.it_value = t;
+
+
+	//printf("%ld, %ld\n", t.tv_sec, t.tv_usec);
+	setitimer(ITIMER_VIRTUAL, &newt, NULL);
+}
+
 int main(int argc, char *argv[])
 {
 	struct rc4_ctx ctx;
@@ -143,9 +189,21 @@ int main(int argc, char *argv[])
 
 	initialize_options(argc, argv);
 
-	rc4_init_key(&ctx, "Ks#gh(a@jks!01GJ;b", 12);
+	rc4_init_key(&ctx, "Ks#gh(a@jks!01GJ;b", 16);
 
-	buf = malloc(total_ram + 1);
+	printf("Total ram: %ld\n", (total_ram));
+	if(total_time > 0.0)	{
+		set_timer(total_time);
+	}
+
+	//return 0;
+	buf = malloc(total_ram);
+
+	setup_signals();
+	if(buf == NULL)	{
+		fprintf(stderr, "Error allocating %ld bytes of RAM\n", total_ram);
+		return EXIT_FAILURE;
+	}
 
 	while(1)	{
 		rc4_xor_stream(&ctx, buf, total_ram);
