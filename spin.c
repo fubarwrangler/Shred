@@ -32,11 +32,18 @@
 
 double total_time = -1.0;
 size_t total_ram = (1 << 22);
+size_t chunks = 0;
+bool keep_going = true;
 
 /* If sigint, set done=1 and break out of main loop cleanly */
 static void sigint_handler(int signum)
 {
-	exit(0);
+	if(signum == SIGVTALRM)
+		exit(0);
+	else if(signum == SIGINT || signum == SIGTERM) {
+		keep_going = false;
+		fprintf(stderr, "Signal caught, terminating\n");
+	}
 }
 
 /* Setup signal handler */
@@ -47,10 +54,14 @@ static void setup_signals(void)
 
 	sigemptyset(&self);
 	sigaddset(&self, SIGVTALRM);
+	sigaddset(&self, SIGINT);
+	sigaddset(&self, SIGTERM);
 	new_action.sa_handler = sigint_handler;
 	new_action.sa_mask = self;
 	new_action.sa_flags = 0;
 
+	sigaction(SIGINT, &new_action, NULL);
+	sigaction(SIGTERM, &new_action, NULL);
 	sigaction(SIGVTALRM, &new_action, NULL);
 }
 
@@ -130,10 +141,13 @@ static void initialize_options(int argc, char *argv[])
 {
 	int c;
 
-	while((c=getopt(argc, argv, "+hn:t:")) != -1)	{
+	while((c=getopt(argc, argv, "+hn:t:c:")) != -1)	{
 		switch(c)	{
 			case 'n':
 				total_ram = parse_num(c);
+				break;
+			case 'c':
+				chunks = parse_num(c);
 				break;
 			case 't':
 				total_time = parse_dbl(c);
@@ -177,38 +191,65 @@ static void set_timer(double secs)
 	newt.it_interval = t;
 	newt.it_value = t;
 
-
-	//printf("%ld, %ld\n", t.tv_sec, t.tv_usec);
 	setitimer(ITIMER_VIRTUAL, &newt, NULL);
 }
 
 int main(int argc, char *argv[])
 {
 	struct rc4_ctx ctx;
-	unsigned char *buf = NULL;
+	unsigned char **buf = NULL;
+	unsigned char **bufs = NULL;
+	size_t each_chunk;
+	int i, j;
 
 	initialize_options(argc, argv);
 
-	rc4_init_key(&ctx, "Ks#gh(a@jks!01GJ;b", 16);
+	rc4_init_key(&ctx, (unsigned char *)"Ks#gh(a@jks!01GJ;b", 16);
 
 	printf("Total ram: %ld\n", (total_ram));
 	if(total_time > 0.0)	{
 		set_timer(total_time);
 	}
-
-	//return 0;
-	buf = malloc(total_ram);
-
 	setup_signals();
-	if(buf == NULL)	{
-		fprintf(stderr, "Error allocating %ld bytes of RAM\n", total_ram);
+
+	if(chunks == 0)	{
+		long double d = log(total_ram);
+		chunks = 1;
+		if(d > 20.0)
+			chunks = d / 4.0;
+
+	}
+	printf("Chunks: %ld\n", chunks);
+
+	bufs = calloc((chunks + 1), sizeof(unsigned char *));
+	if(bufs == NULL)	{
+		fprintf(stderr, "Error allocating RAM for chunks!?\n");
 		return EXIT_FAILURE;
 	}
 
-	while(1)	{
-		rc4_xor_stream(&ctx, buf, total_ram);
+	each_chunk = total_ram / chunks;
+
+	for(i = 0; i < chunks; i++)	{
+		bufs[i] = malloc(each_chunk + 1);
+		memset(bufs[i], 0x7f, each_chunk + 1);
+		if(bufs[i] == NULL)	{
+			fprintf(stderr, "Error allocating chunk %d/%d (%ld each)\n",
+							i, chunks, each_chunk);
+			return EXIT_FAILURE;
+		}
 	}
 
-	free(buf);
+	while(keep_going)	{
+		buf = bufs;
+		while(*buf && keep_going)
+			rc4_xor_stream(&ctx, *buf++, each_chunk);
+	}
+
+	for(buf = bufs; *buf; buf++)	{
+		free(*buf);
+	}
+	free(bufs);
+
+
 	return EXIT_SUCCESS;
 }
