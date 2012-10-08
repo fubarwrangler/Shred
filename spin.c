@@ -1,19 +1,10 @@
 /****************************************************************************
- * shred.c -- A program for turning a little bit of good random data
- *			  into a lot of good-enough random data.
+ * spin.c - a memory-consuming program that spins the CPU as well
  *
- *	Takes a few bytes at a time from /dev/urandom and initializes an RC4
- *	cipher context, which then is used to generate a random key-stream for
- *	a while.  After a certain number of repetitions more random bytes are
- *	read and the key-stream is reinitialized with the new key.
- *
- *	See: http://en.wikipedia.org/wiki/Rc4 for details as to the RC4
- *	algorithm used.  This was chosen because it is considered one of the
- *	fastest nontrivial ciphers to implement in software.
- *
- *	Should use very little CPU, suggested usage is for disk shredding like
- *		"./shred | dd of=/dev/sdd bs=1M"
- *	in parallel for each disk being shredded
+ *	Designed to test Condor batch-system policy regarding memory usage and
+ *	CPU-time usage.  Allocates the requested amount of memory then churns
+ *	through it over and over until a timer runs out or a SIGINT/TERM kills
+ *	the program.
  *
  ***************************************************************************/
 
@@ -31,18 +22,24 @@
 #include "rc4.h"
 
 double total_time = -1.0;
-size_t total_ram = (1 << 22);
-size_t chunks = 0;
+size_t total_ram = (1 << 24);
 bool keep_going = true;
+int chunks = 0;
+
+int stop_count = 0;
 
 /* If sigint, set done=1 and break out of main loop cleanly */
 static void sigint_handler(int signum)
 {
-	if(signum == SIGVTALRM)
+	if(signum == SIGVTALRM)	{
+		fprintf(stderr, "Timer expired, exit now\n");
 		exit(0);
-	else if(signum == SIGINT || signum == SIGTERM) {
+	} else if(signum == SIGINT || signum == SIGTERM) {
+		if(stop_count > 0)
+			exit(1);
 		keep_going = false;
 		fprintf(stderr, "Signal caught, terminating\n");
+		stop_count++;
 	}
 }
 
@@ -156,7 +153,8 @@ static void initialize_options(int argc, char *argv[])
 				fprintf(stderr,
 "Usage: %s [OPTION] [DESTINATION]\n\
   Options:\n\
-    -n  amount of RAM to allocate (defaults to 4Mb)\n\
+    -n  amount of RAM to allocate (defaults to 16Mb)\n\
+    -c  number of chunks to make up total RAM (ram < 2^20 : 1, else ~log(ram))\n\
     -t  how long to run in seconds, decimals accepted (forever if not given)\n\
   Notes:\n\
     Integer values can be postfixed with a multiplier, one of the\n\
@@ -191,6 +189,8 @@ static void set_timer(double secs)
 	newt.it_interval = t;
 	newt.it_value = t;
 
+	printf("Set timer for %.2fs\n", secs);
+
 	setitimer(ITIMER_VIRTUAL, &newt, NULL);
 }
 
@@ -199,14 +199,13 @@ int main(int argc, char *argv[])
 	struct rc4_ctx ctx;
 	unsigned char **buf = NULL;
 	unsigned char **bufs = NULL;
-	size_t each_chunk;
-	int i, j;
+	size_t each_chunk, ctr;
+	int i;
 
 	initialize_options(argc, argv);
 
 	rc4_init_key(&ctx, (unsigned char *)"Ks#gh(a@jks!01GJ;b", 16);
 
-	printf("Total ram: %ld\n", (total_ram));
 	if(total_time > 0.0)	{
 		set_timer(total_time);
 	}
@@ -219,7 +218,7 @@ int main(int argc, char *argv[])
 			chunks = d / 4.0;
 
 	}
-	printf("Chunks: %ld\n", chunks);
+	printf("Total ram: %ld (%d chunks)\n", total_ram, chunks);
 
 	bufs = calloc((chunks + 1), sizeof(unsigned char *));
 	if(bufs == NULL)	{
@@ -238,13 +237,17 @@ int main(int argc, char *argv[])
 			return EXIT_FAILURE;
 		}
 	}
-
+	ctr = 0;
 	while(keep_going)	{
 		buf = bufs;
 		while(*buf && keep_going)
 			rc4_xor_stream(&ctx, *buf++, each_chunk);
+		ctr++;
 	}
 
+	printf("Got through: %ld or fewer iterations of %ld bytes\n", ctr, total_ram);
+
+	/* why not */
 	for(buf = bufs; *buf; buf++)	{
 		free(*buf);
 	}
