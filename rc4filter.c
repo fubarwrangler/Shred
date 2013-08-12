@@ -9,6 +9,7 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <sys/mman.h>
 
 #include <stdbool.h>
 
@@ -180,6 +181,11 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	if(mlock(passphrase, sizeof(passphrase)) != 0)	{
+		perror("memlock passphrase");
+		return 1;
+	}
+
 	initialize_options(argc, argv);
 
 	if(!have_pass)
@@ -192,7 +198,9 @@ int main(int argc, char *argv[])
 
 	rc4_init_key(&ctx, passphrase, passlen);
 
-	memset(passphrase, 0xff, 256);
+	memset(passphrase, 0xff, sizeof(passphrase));
+
+	munlock(passphrase, sizeof(passphrase));
 
 	if(input_file == NULL)	{
 		fp_in = stdin;
