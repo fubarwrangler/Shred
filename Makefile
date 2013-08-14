@@ -12,6 +12,9 @@ rc4filter: rc4.o rc4filter.o
 spin: rc4.o spin.o cmdlineparse.o
 	$(CC) -o spin -lm $^
 
+stride: stride.o cmdlineparse.o
+	$(CC) -o stride $^
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $^
 
@@ -34,4 +37,4 @@ install-spin: spin
 	mv spin $(PREFIX)/bin/spin
 
 clean:
-	rm -f *.o rc4-test rc4 shred rc4filter spin
+	rm -f *.o rc4-test rc4 shred rc4filter spin stride
