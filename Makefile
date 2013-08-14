@@ -9,7 +9,7 @@ shred: rc4.o shred.o
 rc4filter: rc4.o rc4filter.o
 	$(CC) -o rc4filter $^
 
-spin: rc4.o spin.o
+spin: rc4.o spin.o cmdlineparse.o
 	$(CC) -o spin -lm $^
 
 %.o: %.c
