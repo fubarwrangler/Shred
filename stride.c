@@ -134,8 +134,6 @@ int main(int argc, char *argv[])
 
 	initialize_options(argc, argv);
 
-	//posix_fadvise(fd, skip_beginning, 
-	
 	if((fd = open(file, O_RDONLY)) < 0)	{
 		perror("open");
 		return 1;
@@ -144,7 +142,6 @@ int main(int argc, char *argv[])
 	filesize = do_seek(fd, 0, SEEK_END);
 	pos = do_seek(fd, 0, SEEK_SET);
 
-	printf("%lu\n", filesize);
 	fflush(stdout);
 
 	buf_read = MIN(sizeof(buf), read_size);
@@ -156,6 +153,8 @@ int main(int argc, char *argv[])
 		size_t total_read = 0;
 		size_t bytes;
 
+		posix_fadvise(fd, pos, read_size, POSIX_FADV_SEQUENTIAL);
+
 		while(total_read < read_size)	{
 			size_t to_read = MIN(read_size - total_read, buf_read);
 
@@ -164,7 +163,6 @@ int main(int argc, char *argv[])
 			total_read += bytes;
 			write_buf(buf, bytes);
 			if(bytes < to_read)	{
-				//fprintf(stderr, "short read: %lu bytes", bytes);
 				return 0;
 			}
 		}
