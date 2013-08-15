@@ -3,7 +3,7 @@ PREFIX= /usr
 
 all: shred rc4filter spin
 
-shred: rc4.o shred.o
+shred: rc4.o shred.o cmdlineparse.o
 	$(CC) -o shred $^
 
 rc4filter: rc4.o rc4filter.o

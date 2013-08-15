@@ -27,6 +27,7 @@
 #include <signal.h>
 
 #include "rc4.h"
+#include "cmdlineparse.h"
 
 /* Length of the key to read from /dev/urandom each re-initialization */
 static size_t klen = 32;
@@ -69,53 +70,6 @@ static void setup_signals(void)
 	new_action.sa_flags = 0;
 
 	sigaction(SIGINT, &new_action, NULL);
-}
-
-/* Get a positive integer out of the current optarg (option @c) or exit */
-static long int parse_num(int c)
-{
-	char *p;
-	long int n;
-	unsigned long int mult;
-
-	errno = 0;
-	n = strtol(optarg, &p, 10);
-	if(errno != 0 || n < 0)	{
-		fprintf(stderr, "Error -%c requires a positive integer\n", c);
-		exit(EXIT_FAILURE);
-	}
-
-	switch(*p)	{
-		case '\0':
-			return n;
-		case 'K':
-			mult = (10L * 10L * 10L); break;
-		case 'k':
-			mult = (1 << 10); break;
-		case 'M':
-			mult = (1000L * 1000L); break;
-		case 'm':
-			mult = (1 << 20); break;
-			break;
-		case 'G':
-			mult = (1000000L * 1000000L); break;
-		case 'g':
-			mult = (1 << 30); break;
-			break;
-		default:
-			fprintf(stderr,
-				"Invalid multiplier character found for -%c: %c, "
-				"must be K/k/M/m/G/g\n", c, *p);
-			exit(EXIT_FAILURE);
-	}
-
-	if(*(p + 1) == '\0' || (*(p + 1) == 'b' && *(p + 2) == '\0'))
-		return n * mult;
-
-	fprintf(stderr, "Invalid character found after multiplier for"
-		" -%c: %c\n", c, *(p+1));
-
-	exit(EXIT_FAILURE);
 }
 
 /* Set the configuration options above from cmdline */
@@ -288,6 +242,11 @@ int main(int argc, char *argv[])
 	setup_signals();
 
 	do {
+		read_random_bytes("/dev/urandom", key, klen);
+
+		/* Mix the state with more random bytes */
+		rc4_shuffle_key(&ctx, key, klen);
+
 		for(n = 0; n < reps && !done; n++)	{
 			rc4_fill_buf(&ctx, data, bufsize);
 
@@ -296,10 +255,6 @@ int main(int argc, char *argv[])
 			if(total > 0 && written >= total)
 				done = true;
 		}
-		read_random_bytes("/dev/urandom", key, klen);
-
-		/* Mix the state with more random bytes */
-		rc4_shuffle_key(&ctx, key, klen);
 
 		if(debug && !done)
 			fprintf(stderr,
