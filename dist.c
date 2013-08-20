@@ -6,16 +6,16 @@ uint64_t arr[256] = {0};
 
 int main(int argc, char *argv[])
 {
-	int r;
+	unsigned char buf[4096];
 	uint64_t max = 0, norm = 0;
-	unsigned char c;
-	
-	while((r = getchar()) != EOF)	{
-		c = (unsigned char)r;
-		arr[c]++;
-	}
+	size_t n, i;
 
-	for(int i = 0; i < 256; i++)	{
+	while((n = fread(buf, 1, sizeof(buf), stdin)) != 0)
+		for(i = 0; i < n; i++)
+			arr[buf[i]]++;
+
+
+	for(i = 0; i < 256; i++)	{
 		if(arr[i] > max)
 			max = arr[i];
 		norm += arr[i];
