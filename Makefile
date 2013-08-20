@@ -1,8 +1,10 @@
 CFLAGS= -O3 -march=core2 -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
 PREFIX= /usr
 
-all: shred rc4filter spin stride
+all: shred rc4filter spin stride dist
 
+dist: dist.o
+	$(CC) -o dist $^
 shred: rc4.o shred.o cmdlineparse.o
 	$(CC) -o shred $^
 
@@ -37,4 +39,4 @@ install-spin: spin
 	mv spin $(PREFIX)/bin/spin
 
 clean:
-	rm -f *.o rc4-test rc4 shred rc4filter spin stride
+	rm -f *.o rc4-test rc4 shred rc4filter spin stride dist
