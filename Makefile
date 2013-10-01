@@ -8,7 +8,7 @@ dist: dist.o
 shred: rc4.o shred.o cmdlineparse.o
 	$(CC) -o shred $^
 
-rc4filter: rc4.o rc4filter.o
+rc4filter: rc4.o rc4filter.o cmdlineparse.o
 	$(CC) -o rc4filter $^
 
 spin: rc4.o spin.o cmdlineparse.o

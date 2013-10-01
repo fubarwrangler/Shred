@@ -53,7 +53,7 @@ static void sigint_handler(int signum)
 	done = true;
 	if(debug || print_conf)
 		fputs("\nCaught SIGINT, stop after next block...", stderr);
-	if(print_conf && !debug)
+	if(signum && print_conf && !debug)
 		fputc('\n', stderr);
 }
 

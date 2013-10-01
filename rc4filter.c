@@ -14,8 +14,9 @@
 #include <stdbool.h>
 
 #include "rc4.h"
+#include "cmdlineparse.h"
 
-#define DEF_BUFSIZE	(1 << 12)	/* page size? */
+#define DEF_BUFSIZE	(size_t)(1 << 12)	/* page size? */
 
 
 static unsigned char passphrase[256] = {0};
@@ -135,14 +136,15 @@ static void initialize_options(int argc, char *argv[])
 				have_pass = true;
 				break;
 			case 'b':
-
+				bufsize = parse_num(c);
+				break;
 			case 'h':
 				fprintf(stderr,
 "Usage: %s [OPTION] [INPUT] [OUTPUT]\n\
   Options:\n\
     -p  passphrase to use, if not given prompt from user on stdin\n\
     -f  pass-file to use, read contents of file and user as passphrase\n\
-    -b  block-size to use (default %ld)\n\n\
+    -b  block-size to use (default %zu)\n\n\
   Arguments:\n\
     INPUT   optional input file, if not given or given as '-', read stdin\n\
     OUTPUT  optional output file, if not given write to stdout\n\n\
@@ -150,7 +152,7 @@ static void initialize_options(int argc, char *argv[])
     If reading from stdin, the user will be asked to provide a password\n\
     from the terminal, so unless -p or -f is specified, the program needs \n\
     a controlling terminal or it will throw an error.\n\
-", argv[0], bufsize);
+", argv[0], DEF_BUFSIZE);
 				exit(EXIT_SUCCESS);
 			case '?':
 				exit(EXIT_FAILURE);

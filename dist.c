@@ -1,3 +1,9 @@
+/*************************************************************************
+ * dist.c -- print a histogram of the distribution of characters in the 
+ *           incoming stream (or file passed as argv[1]) to do a very
+ *           cursory, crappy, and insecure check for randomness!
+ *
+ ************************************************************************/
 #include <stdio.h>
 #include <stdint.h>
 
