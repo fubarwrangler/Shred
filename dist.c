@@ -1,3 +1,4 @@
+/* vim: set ts=4 sw=4 noexpandtab: */
 /*************************************************************************
  * dist.c -- print a histogram of the distribution of characters in the 
  *           incoming stream (or file passed as argv[1]) to do a very
@@ -10,18 +11,16 @@
 #include <string.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <stdbool.h>
+#include <signal.h>
 
 #include "cmdlineparse.h"
 
-enum {
-	BIT = 1,
-	HEX = 4,
-	BYTE = 8,
-};
 
-uint64_t arr[256] = {0};
-char bitcount = BYTE;
+uint64_t *arr = NULL;
+char bitcount = 8;
 char *file = NULL;
+bool done = false;
 
 /* Set the configuration options above from cmdline */
 static void initialize_options(int argc, char *argv[])
@@ -33,13 +32,13 @@ static void initialize_options(int argc, char *argv[])
 			case 'b':
 				switch(bitcount = parse_num(c))	{
 					case 1:
-						bitcount = BIT;
+						bitcount = 1;
 						break;
 					case 4:
-						bitcount = HEX;
+						bitcount = 4;
 						break;
 					case 8:
-						bitcount = BYTE;
+						bitcount = 8;
 						break;
 					default:
 						fprintf(stderr, "Error, bit count needs to be '1', '4', or '8'\n");
@@ -77,6 +76,13 @@ static void initialize_options(int argc, char *argv[])
 	}
 }
 
+static void on_term(int sig)
+{
+	sig++;
+	done = true;
+	printf("\n");
+}
+
 int main(int argc, char *argv[])
 {
 	FILE *fp = stdin;
@@ -84,9 +90,12 @@ int main(int argc, char *argv[])
 	uint64_t total = 0;
 	uint64_t norm = 0;
 	uint64_t max = 0;
-	size_t n, i;
+	size_t n;
 
 	initialize_options(argc, argv);
+
+	arr = calloc((1 << bitcount), sizeof(uint64_t));
+	signal(SIGINT, on_term);
 
 	if(file != NULL)	{
 		if((fp = fopen(argv[1], "r")) == NULL)	{
@@ -95,9 +104,10 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	while((n = fread(buf, 1, sizeof(buf), fp)) != 0)	{
-		for(i = 0; i < n; i++)
-			arr[buf[i]]++;
+	while((n = fread(buf, 1, sizeof(buf), fp)) != 0 && !done)	{
+		for(size_t i = 0; i < n; i++)
+			for(int j = 0; j < 8; j += bitcount)
+				arr[(buf[i] >> j) & ((1 << bitcount) - 1)]++;
 		total += n;
 	}
 
@@ -108,7 +118,7 @@ int main(int argc, char *argv[])
 
 	fclose(fp);
 
-	for(i = 0; i < 256; i++)	{
+	for(int i = 0; i < (1 << bitcount); i++)	{
 		if(arr[i] > max)
 			max = arr[i];
 		norm += arr[i];
@@ -120,7 +130,7 @@ int main(int argc, char *argv[])
 	for(int j = 0; j < (1 << bitcount); j++)	{
 		int stat;
 		stat = (60 * arr[j]) / max;
-		printf("%-2x (%7.3f%%) |", j, 100.0f * (double)arr[j] / (double)norm);
+		printf("0x%.2x (%7.3f%%) |", j, 100.0f * (double)arr[j] / (double)norm);
 		for(int k = 0; k < stat; k++)	{
 			putchar('*');
 		}

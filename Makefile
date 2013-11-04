@@ -3,8 +3,9 @@ PREFIX= /usr
 
 all: shred rc4filter spin stride dist
 
-dist: dist.o
+dist: dist.o cmdlineparse.o
 	$(CC) -o dist $^
+
 shred: rc4.o shred.o cmdlineparse.o
 	$(CC) -o shred $^
 
