@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -195,6 +196,8 @@ int main(int argc, char *argv[])
 	unsigned int n;
 	struct rc4_ctx ctx;
 	size_t written = 0;
+	struct timespec t_start, t_end;
+	float mb, runtime;
 	int fd;
 
 	initialize_options(argc, argv);
@@ -241,6 +244,11 @@ int main(int argc, char *argv[])
 
 	setup_signals();
 
+	if(clock_gettime(CLOCK_MONOTONIC, &t_start) != 0)	{
+		perror("clock_gettime");
+		return 1;
+	}
+
 	do {
 		read_random_bytes("/dev/urandom", key, klen);
 
@@ -272,8 +280,17 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	fprintf(stderr, "\nFinished, %ld blocks (%.3f Mb) written in total\n",
-					written, (float)((written * bufsize) / 1000000.0 ));
+	if(clock_gettime(CLOCK_MONOTONIC, &t_end) != 0)	{
+		perror("clock_gettime");
+		return 1;
+	}
+
+	mb = (float)((written * bufsize) / 1000000.0f);
+	runtime = (t_end.tv_sec - t_start.tv_sec) +
+			  ((float)(t_end.tv_nsec - t_start.tv_nsec) / 1000000000.0f);
+
+	fprintf(stderr, "\nFinished, %ld blocks (%.3f Mb) written in %.3fs (%.2f Mb/s)\n",
+					written, mb, runtime, mb / runtime);
 
 	if(fname != NULL)
 		close(fd);

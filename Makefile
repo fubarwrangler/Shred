@@ -1,4 +1,4 @@
-CFLAGS= -O3 -march=core2 -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+CFLAGS= -O3 -march=native -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
 PREFIX= /usr
 
 all: shred rc4filter spin stride dist
@@ -7,7 +7,7 @@ dist: dist.o cmdlineparse.o
 	$(CC) -o dist $^
 
 shred: rc4.o shred.o cmdlineparse.o
-	$(CC) -o shred $^
+	$(CC) -lrt -o shred $^
 
 rc4filter: rc4.o rc4filter.o cmdlineparse.o
 	$(CC) -o rc4filter $^
