@@ -1,28 +1,30 @@
 CFLAGS= -O3 -march=native -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+#LDFLAGS=-static
+LDFLAGS=
 PREFIX= /usr
 
 all: shred rc4filter spin stride dist
 
 dist: dist.o cmdlineparse.o
-	$(CC) -o dist $^
+	$(CC) $(LDFLAGS) -o dist $^
 
 shred: rc4.o shred.o cmdlineparse.o
-	$(CC) -lrt -o shred $^
+	$(CC) $(LDFLAGS) -lrt -o shred $^
 
 rc4filter: rc4.o rc4filter.o cmdlineparse.o
-	$(CC) -o rc4filter $^
+	$(CC) $(LDFLAGS) -o rc4filter $^
 
 spin: rc4.o spin.o cmdlineparse.o
-	$(CC) -o spin -lm $^
+	$(CC) $(LDFLAGS) -o spin $^ -lm
 
 stride: stride.o cmdlineparse.o
-	$(CC) -o stride $^
+	$(CC) $(LDFLAGS) -o stride $^
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $^
 
 test: rc4.c
-	$(CC) $(CFLAGS) -D TEST -o rc4-test rc4.c
+	$(CC) $(LDFLAGS) $(CFLAGS) -D TEST -o rc4-test rc4.c
 
 install-shred: shred
 	chmod 755 shred

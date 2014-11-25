@@ -9,11 +9,12 @@
 
 #include "cmdlineparse.h"
 
-char     *file = NULL;
-uint64_t skip_beginning = 0;
-uint64_t stride_size = 0;
-uint64_t read_size = 4096;
-bool     verbose = false;
+uint64_t	skip_beginning = 0;
+uint64_t	stride_size = 0;
+uint64_t	read_size = 4096;
+char	*file = NULL;
+bool	verbose = false;
+bool	progress = false;
 
 uint64_t filesize = 0;
 
@@ -23,7 +24,7 @@ static void initialize_options(int argc, char *argv[])
 {
 	int c;
 
-	while((c=getopt(argc, argv, "+hs:l:n:")) != -1) {
+	while((c=getopt(argc, argv, "+hs:l:n:p")) != -1) {
 		switch(c)   {
 			case 's':
 				skip_beginning = parse_num(c);
@@ -34,6 +35,9 @@ static void initialize_options(int argc, char *argv[])
 			case 'n':
 				read_size = parse_num(c);
 				break;
+			case 'p':
+				progress = true;
+				break;
 			case 'h':
 				fprintf(stderr,
 "Usage: %s [options] FILE \n\
@@ -42,6 +46,7 @@ static void initialize_options(int argc, char *argv[])
 	-s  bytes to skip before starting (default %lu)\n\
 	-l  length of stride to take between reads, in bytes (default %lu)\n\
 	-n  number of bytes to read at each stride (default %lu)\n\
+	-p  display progress bar\n\
   Notes:\n\
 	Integer values can be postfixed with a multiplier, one of the\n\
 	following letters:\n\
@@ -52,7 +57,7 @@ static void initialize_options(int argc, char *argv[])
 ", argv[0], skip_beginning, stride_size, read_size);
 				exit(EXIT_SUCCESS);
 			case '?':
-				if(strchr("hsln", optopt) == NULL)
+				if(strchr("hslnp", optopt) == NULL)
 					fprintf(stderr,
 						"Unknown option -%c encountered\n", optopt);
 				else
@@ -130,6 +135,9 @@ int main(int argc, char *argv[])
 	unsigned char buf[8192];
 	size_t buf_read;
 	uint64_t pos;
+	float pct;
+	float next = 0.01f;
+	bool  done = false;
 	int fd;
 
 	initialize_options(argc, argv);
@@ -147,9 +155,9 @@ int main(int argc, char *argv[])
 	buf_read = MIN(sizeof(buf), read_size);
 
 	if(skip_beginning > 0)
-		do_seek(fd, skip_beginning, SEEK_SET);
+		pos = do_seek(fd, skip_beginning, SEEK_SET);
 
-	while(pos + stride_size < filesize)	{
+	while(pos + stride_size < filesize && !done)	{
 		size_t total_read = 0;
 		size_t bytes;
 
@@ -163,14 +171,36 @@ int main(int argc, char *argv[])
 			total_read += bytes;
 			write_buf(buf, bytes);
 			if(bytes < to_read)	{
-				return 0;
+				break;
 			}
 		}
 
 		if(stride_size > 0)	{
-			pos = do_seek(fd, stride_size, SEEK_CUR);
+			uint64_t n = do_seek(fd, stride_size, SEEK_CUR);
+			if(n == 0)
+				pos = do_seek(fd, 0, SEEK_CUR);
+			else
+				pos = n;
+		} else {
+			pos += read_size;
+		}
+
+		if(progress)	{
+			pct = (float)pos / (float)filesize;
+			if(pct > next || pos >= filesize)	{
+				int i = 0;
+				next += (1.0f / 1024.0f);
+				fprintf(stderr, "\r%6.2f%% [", 100.0f * pct);
+				for(; i < (int)(pct * 70.0); i++)
+					putc('*', stderr);
+				for(; i < 70-1; i++)
+					putc(' ', stderr);
+				putc(']', stderr);
+
+			}
 		}
 	}
+	putc('\n', stderr);
 
 	close(fd);
 
