@@ -1,0 +1,8 @@
+*.o
+.kdev4/
+dist
+rc4filter
+shred
+shred.kdev4
+spin
+stride

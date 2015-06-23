@@ -1,4 +1,5 @@
-SHRED -- disk shredding utility.
+=SHRED
+Disk shredding utility and other uses for RC4-random numbers
 
 For when "dd if=/dev/urandom of=/dev/sdb bs=4M" is too slow to shred your disks
 with...
