@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <sys/types.h>
 
 #include "rc4.h"
 #include "cmdlineparse.h"
@@ -50,6 +51,8 @@ static bool direct_io = false;
 static bool debug = false;
 /* Break out of loop */
 static bool done = false;
+/* Bytes to skip in output device before writing */
+static off_t skip = 0;
 
 
 /* If sigint, set done=1 and break out of main loop cleanly */
@@ -82,7 +85,7 @@ static void initialize_options(int argc, char *argv[])
 {
 	int c;
 
-	while((c=getopt(argc, argv, "+hpdSn:k:b:r:f:")) != -1)	{
+	while((c=getopt(argc, argv, "+hpdSn:k:b:r:f:s:")) != -1)	{
 		switch(c)	{
 			case 'n':
 				total = parse_num(c);
@@ -104,6 +107,9 @@ static void initialize_options(int argc, char *argv[])
 			case 'r':
 				reps = parse_num(c);
 				break;
+			case 's':
+				skip = parse_num(c);
+				break;
 			case 'h':
 				fprintf(stderr,
 "Usage: %s [OPTION] [DESTINATION]\n\
@@ -113,6 +119,7 @@ static void initialize_options(int argc, char *argv[])
     -r  blocks to write before re- initializing the key, default 8192\n\
     -k  number of random bytes to initialize the key, default 32\n\
     -S  sidestep disk buffer, open destination with O_DIRECT\n\
+    -s  bytes to skip in output device before starting writing\n\
     -p  print the configuration used to stderr\n\
     -d  debug, print processing messages to stderr (implies -p)\n\n\
   Arguments:\n\
@@ -201,6 +208,7 @@ int main(int argc, char *argv[])
 {
 	unsigned char *data, *key;
 	unsigned char tmpdata[8];
+	unsigned char discard[1024];
 	unsigned int n;
 	struct rc4_ctx ctx;
 	size_t written = 0;
@@ -226,22 +234,28 @@ int main(int argc, char *argv[])
 
 		fprintf(stderr,
 			"Block size: %ld\nBlocks / key: %ld\nKey bytes: %ld\n"
-			"Total: %s\nDestination: %s%s",
+			"Total: %s\nDestination: %s (%ld bytes skipped)%s",
 			bufsize, reps, klen, tstr,
-			(fname == NULL) ? "(stdout)" : fname,
+			(fname == NULL) ? "(stdout)" : fname, skip,
 			(direct_io) ? "\nDirect IO (O_DSYNC) in use\n" : "\n");
 
 	}
 
 	if(fname != NULL)	{
 		int flags = O_CREAT | O_WRONLY;
-		flags |= (direct_io) ? O_DSYNC: 0;
-		fd = open(fname, flags, 0664);
+		fd = open(fname, flags | ((direct_io) ? O_DSYNC : 0), 0664);
 		if(fd < 0)	{
 			char warn[2048];
 			snprintf(warn, 2047, "Opening '%s' for writing", fname);
 			perror(warn);
 			exit(EXIT_FAILURE);
+		}
+		if(skip > 0)	{
+			if(lseek(fd, skip, SEEK_SET) < 0)	{
+				perror("Failed to seek in output");
+				exit(EXIT_FAILURE);
+			}
+			if(debug) fprintf(stderr, "Seeked %ld bytes in output\n", skip);
 		}
 	} else {
 		fd = fileno(stdout);
@@ -249,9 +263,9 @@ int main(int argc, char *argv[])
 
 	if(debug) fprintf(stderr, "Initalizing key with %ld bytes\n", klen);
 
-	/* First pass init key with 64 truly random bits */
-	read_random_bytes("/dev/random", tmpdata, 8);
-	rc4_init_key(&ctx, tmpdata, 8);
+	/* First pass init key with 96 truly random bits */
+	read_random_bytes("/dev/random", tmpdata, 12);
+	rc4_init_key(&ctx, tmpdata, 12);
 
 	setup_signals();
 
@@ -265,6 +279,12 @@ int main(int argc, char *argv[])
 
 		/* Mix the state with more random bytes */
 		rc4_shuffle_key(&ctx, key, klen);
+		
+		/* Discard some keystream because beginning of RC4 is weaker?
+		 * I mean, we're not really doing crypto here, but whatever...
+		 */
+		rc4_fill_buf(&ctx, discard, sizeof(discard));
+		
 
 		for(n = 0; n < reps && !done; n++)	{
 			rc4_fill_buf(&ctx, data, bufsize);
