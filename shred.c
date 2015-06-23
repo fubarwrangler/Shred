@@ -1,3 +1,4 @@
+/* vim: set ts=4 sw=4 noexpandtab: */
 /****************************************************************************
  * shred.c -- A program for turning a little bit of good random data
  *			  into a lot of good-enough random data.
@@ -16,6 +17,7 @@
  *	in parallel for each disk being shredded
  *
  ***************************************************************************/
+//#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +44,8 @@ static size_t total = 0;
 static char *fname = NULL;
 /* Print the configuration to stderr */
 static bool print_conf = 0;
+/* Open with O_DIRECT */
+static bool direct_io = false;
 /* Debug messages along the way */
 static bool debug = false;
 /* Break out of loop */
@@ -78,7 +82,7 @@ static void initialize_options(int argc, char *argv[])
 {
 	int c;
 
-	while((c=getopt(argc, argv, "+hpdn:k:b:r:f:")) != -1)	{
+	while((c=getopt(argc, argv, "+hpdSn:k:b:r:f:")) != -1)	{
 		switch(c)	{
 			case 'n':
 				total = parse_num(c);
@@ -90,6 +94,9 @@ static void initialize_options(int argc, char *argv[])
 						  stderr);
 					klen = 256;
 				}
+				break;
+			case 'S':
+				direct_io = true;
 				break;
 			case 'b':
 				bufsize = parse_num(c);
@@ -105,6 +112,7 @@ static void initialize_options(int argc, char *argv[])
     -b  block size to write at a time, default 4096\n\
     -r  blocks to write before re- initializing the key, default 8192\n\
     -k  number of random bytes to initialize the key, default 32\n\
+    -S  sidestep disk buffer, open destination with O_DIRECT\n\
     -p  print the configuration used to stderr\n\
     -d  debug, print processing messages to stderr (implies -p)\n\n\
   Arguments:\n\
@@ -119,12 +127,12 @@ static void initialize_options(int argc, char *argv[])
 ", argv[0]);
 				exit(EXIT_SUCCESS);
 			case 'd':
-				debug = 1;
+				debug = true;
 			case 'p':
-				print_conf = 1;
+				print_conf = true;
 				break;
 			case '?':
-				if(strchr("nkbr", optopt) == NULL)
+				if(strchr("nkbrs", optopt) == NULL)
 					fprintf(stderr,
 						"Unknown option -%c encountered\n", optopt);
 				else
@@ -175,7 +183,7 @@ static int write_block(int fd, unsigned char *buf, size_t len)
 
 		if(errno || this_write < 0)	{
 			if(errno == ENOSPC)	{
-				fputs("No space left, exiting", stderr);
+				fputs("\nNo space left, exiting", stderr);
 				done = true;
 				return 0;
 			}
@@ -218,14 +226,17 @@ int main(int argc, char *argv[])
 
 		fprintf(stderr,
 			"Block size: %ld\nBlocks / key: %ld\nKey bytes: %ld\n"
-			"Total: %s\nDestination: %s\n",
+			"Total: %s\nDestination: %s%s",
 			bufsize, reps, klen, tstr,
-			(fname == NULL) ? "(stdout)" : fname);
+			(fname == NULL) ? "(stdout)" : fname,
+			(direct_io) ? "\nDirect IO (O_DSYNC) in use\n" : "\n");
 
 	}
 
 	if(fname != NULL)	{
-		fd = open(fname, O_CREAT | O_WRONLY, 0664);
+		int flags = O_CREAT | O_WRONLY;
+		flags |= (direct_io) ? O_DSYNC: 0;
+		fd = open(fname, flags, 0664);
 		if(fd < 0)	{
 			char warn[2048];
 			snprintf(warn, 2047, "Opening '%s' for writing", fname);
