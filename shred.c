@@ -28,6 +28,8 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <pthread.h>
+#include <assert.h>
 #include <sys/types.h>
 
 #include "rc4.h"
@@ -53,6 +55,19 @@ static bool debug = false;
 static bool done = false;
 /* Bytes to skip in output device before writing */
 static off_t skip = 0;
+/* Number of threads to create, defaults to none (1 == main thread) */
+static int nr_threads = 1;
+
+static struct per_thread	{
+	pthread_cond_t go;
+	pthread_mutex_t lock;
+	struct rc4_ctx *ctx;
+	bool ready;
+	char *buf;
+} *tinfo;
+
+static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t dataready = PTHREAD_COND_INITIALIZER;
 
 
 /* If sigint, set done=1 and break out of main loop cleanly */
@@ -85,7 +100,7 @@ static void initialize_options(int argc, char *argv[])
 {
 	int c;
 
-	while((c=getopt(argc, argv, "+hpdSn:k:b:r:f:s:")) != -1)	{
+	while((c=getopt(argc, argv, "+hpdSn:k:b:r:f:s:t:")) != -1)	{
 		switch(c)	{
 			case 'n':
 				total = parse_num(c);
@@ -110,6 +125,9 @@ static void initialize_options(int argc, char *argv[])
 			case 's':
 				skip = parse_num(c);
 				break;
+			case 't':
+				nr_threads = parse_num(c);
+				break;
 			case 'h':
 				fprintf(stderr,
 "Usage: %s [OPTION] [DESTINATION]\n\
@@ -120,6 +138,7 @@ static void initialize_options(int argc, char *argv[])
     -k  number of random bytes to initialize the key, default 32\n\
     -S  sidestep disk buffer, open destination with O_DIRECT\n\
     -s  bytes to skip in output device before starting writing\n\
+    -t  number of threads to use, default is just main thread\n\
     -p  print the configuration used to stderr\n\
     -d  debug, print processing messages to stderr (implies -p)\n\n\
   Arguments:\n\
@@ -176,17 +195,68 @@ static void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
 	}
 }
 
+static void init_threads(struct per_thread **t, struct rc4_ctx *root, int len)
+{
+	unsigned char key[16];
+
+	for (int i = 0; i < len; i++)	{
+		pthread_mutex_init(&(t[i]->lock), NULL);
+		pthread_cond_init(&(t[i]->go), NULL);
+		t[i]->ctx = rc4_copy_ctx(root);
+
+		/* Mix the state with more random bytes */
+		read_random_bytes("/dev/urandom", key, sizeof(key));
+		rc4_shuffle_key(t[i]->ctx, key, sizeof(key));
+
+		t[i]->ready = false;
+		t[i]->buf = malloc(bufsize);
+	}
+}
+
+static void worker_generator(void *arg)
+{
+	int id = *(int *)arg;
+	assert(id < nr_threads);
+
+	struct per_thread *pt = &tinfo[id];
+
+	pthread_mutex_lock(&pt->lock); /* L */
+	while(1)	{
+		rc4_fill_buf(pt->ctx, pt->buf, bufsize);
+		pt->ready = true;
+		pthread_cond_wait(&pt->go, &pt->lock); /* U ... L */
+	}
+	pthread_mutex_unlock(&pt->lock); /* U */
+}
+
+static char *get_available_data(void)
+{
+	static int last_id = 0;
+	struct per_thread *t;
+	int i;
+
+	pthread_cond_signal(&tinfo[last_id].go);
+	while(true)	{
+		i = (i + 1) % nr_threads;
+		t = &tinfo[i];
+		if(t->ready)	{
+			last_id = i;
+			return t->data;
+		}
+	}
+}
+
 /* Write @len bytes from @buf out to file descriptor @fd.
  * Return 1 on success, 0 on full device, exit on failure
  */
-static int write_block(int fd, unsigned char *buf, size_t len)
+static int write_block(int fd, unsigned char *buf)
 {
 	size_t written = 0;
 	ssize_t this_write = 0;
 
-	while(written < len)	{
+	while(written < bufsize)	{
 
-		this_write = write(fd, buf + written, len - written);
+		this_write = write(fd, buf + written, bufsize - written);
 
 		if(errno || this_write < 0)	{
 			if(errno == ENOSPC)	{
@@ -218,10 +288,18 @@ int main(int argc, char *argv[])
 
 	initialize_options(argc, argv);
 
+	pthread_t producers[nr_threads];
+
+	if (nr_threads > 200) {
+		fputs("Too many threads, must be <= 200\n", stderr);
+		return EXIT_FAILURE;
+	}
+
 	data = malloc(bufsize);
 	key = malloc(klen);
+	tinfo = calloc(nr_threads, sizeof(struct per_thread));
 
-	if(data == NULL || key == NULL)	{
+	if(data == NULL || key == NULL || tinfo == NULL)	{
 		fputs("Memory allocation error\n", stderr);
 		return EXIT_FAILURE;
 	}
@@ -279,17 +357,23 @@ int main(int argc, char *argv[])
 
 		/* Mix the state with more random bytes */
 		rc4_shuffle_key(&ctx, key, klen);
-		
+
 		/* Discard some keystream because beginning of RC4 is weaker?
 		 * I mean, we're not really doing crypto here, but whatever...
 		 */
 		rc4_fill_buf(&ctx, discard, sizeof(discard));
-		
+
 
 		for(n = 0; n < reps && !done; n++)	{
-			rc4_fill_buf(&ctx, data, bufsize);
+			char *d;
+			if(nr_threads > 1)	{
+				d = get_available_data();
+			} else {
+				rc4_fill_buf(&ctx, data, bufsize);
+				d = data;
+			}
 
-			written += write_block(fd, data, bufsize);
+			written += write_block(fd, d);
 
 			if(total > 0 && written >= total)
 				done = true;

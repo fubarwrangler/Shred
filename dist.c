@@ -1,6 +1,6 @@
 /* vim: set ts=4 sw=4 noexpandtab: */
 /*************************************************************************
- * dist.c -- print a histogram of the distribution of characters in the 
+ * dist.c -- print a histogram of the distribution of characters in the
  *           incoming stream (or file passed as argv[1]) to do a very
  *           cursory, crappy, and insecure check for randomness!
  *
@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
 	for(int j = 0; j < (1 << bitcount); j++)	{
 		int stat;
 		stat = (60 * arr[j]) / max;
-		printf("0x%.2x (%7.3f%%) |", j, 100.0f * (double)arr[j] / (double)norm);
+		printf("0x%.2x (%7.5f%%) |", j, 100.0f * (double)arr[j] / (double)norm);
 		for(int k = 0; k < stat; k++)	{
 			putchar('*');
 		}

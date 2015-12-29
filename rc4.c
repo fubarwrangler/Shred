@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "rc4.h"
 
@@ -76,6 +77,17 @@ void rc4_xor_stream(struct rc4_ctx *ctx, unsigned char *buf, size_t n)
 		*(buf + ctr) ^= state[(state[i] + state[j]) & 255];
 	} while(++ctr < n);
 }
+
+/* Copy an existing rc4 context */
+struct rc4_ctx *rc4_copy_ctx(struct rc4_ctx *src)
+{
+	struct rc4_ctx *new_ctx = malloc(sizeof(struct rc4_ctx));
+	if (new_ctx == NULL)
+		return NULL;
+	memcpy(new_ctx, src, sizeof(struct rc4_ctx));
+	return new_ctx;
+}
+
 
 #ifdef TEST
 #include <string.h>
