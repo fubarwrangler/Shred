@@ -35,6 +35,10 @@
 #include "rc4.h"
 #include "cmdlineparse.h"
 
+void read_random_bytes(const char *rand_device, unsigned char *buf, size_t len);
+int write_block(int fd, unsigned char *buf, size_t len);
+
+
 /* Length of the key to read from /dev/urandom each re-initialization */
 static size_t klen = 32;
 /* Size of the buffer to write at a time */
@@ -63,7 +67,8 @@ static struct per_thread	{
 	pthread_mutex_t lock;
 	struct rc4_ctx *ctx;
 	bool ready;
-	char *buf;
+	unsigned char *buf;
+	int id;
 } *tinfo;
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -178,101 +183,87 @@ static void initialize_options(int argc, char *argv[])
 	}
 }
 
-/* Read @len random bytes from /dev/urandom into @buf */
-static void read_random_bytes(char *rand_device, unsigned char *buf, size_t len)
-{
-	int fd;
-	fd = open(rand_device, O_RDONLY);
-	if (fd >= 0) {
-		size_t rb = 0;
-		while(rb < len)	{
-			rb += read(fd, buf + rb, len - rb);
-		}
-		close(fd);
-	} else {
-		perror("Random device");
-		exit(EXIT_FAILURE);
-	}
-}
-
-static void init_threads(struct per_thread **t, struct rc4_ctx *root, int len)
+static void init_threads(struct rc4_ctx *root)
 {
 	unsigned char key[16];
 
-	for (int i = 0; i < len; i++)	{
-		pthread_mutex_init(&(t[i]->lock), NULL);
-		pthread_cond_init(&(t[i]->go), NULL);
-		t[i]->ctx = rc4_copy_ctx(root);
+	for (int i = 0; i < nr_threads; i++)	{
+		printf("Initalizing thread %d\n", i);
+		pthread_mutex_init(&(tinfo[i].lock), NULL);
+		pthread_cond_init(&(tinfo[i].go), NULL);
+		tinfo[i].ctx = rc4_copy_ctx(root);
 
 		/* Mix the state with more random bytes */
 		read_random_bytes("/dev/urandom", key, sizeof(key));
-		rc4_shuffle_key(t[i]->ctx, key, sizeof(key));
+		rc4_shuffle_key(tinfo[i].ctx, key, sizeof(key));
 
-		t[i]->ready = false;
-		t[i]->buf = malloc(bufsize);
+		tinfo[i].ready = false;
+		tinfo[i].buf = malloc(bufsize);
+		tinfo[i].id = i;
 	}
 }
 
-static void worker_generator(void *arg)
+static void *worker_generator(void *arg)
 {
-	int id = *(int *)arg;
+	int id = (int)arg;
+	printf("Creating prod worker %d\n", id);
 	assert(id < nr_threads);
 
 	struct per_thread *pt = &tinfo[id];
 
 	pthread_mutex_lock(&pt->lock); /* L */
-	while(1)	{
+	printf("prod-%d: Entering worker, locked mtx\n", id);
+	while(!done)	{
+		printf("prod-%d: Fill my buf (%p)\n", id, pt->buf);
 		rc4_fill_buf(pt->ctx, pt->buf, bufsize);
 		pt->ready = true;
-		pthread_cond_wait(&pt->go, &pt->lock); /* U ... L */
+		printf("prod-%d: Waiting for global mtx to signal ready\n", id);
+		pthread_mutex_lock(&mtx);
+		pthread_cond_signal(&dataready);
+		pthread_mutex_unlock(&mtx);
+		printf("prod-%d: Ready signalled -- wait for my cond\n", id);
+		while(pt->ready)	{
+			pthread_cond_wait(&pt->go, &pt->lock); /* U ... L */
+		}
 	}
 	pthread_mutex_unlock(&pt->lock); /* U */
+	return NULL;
 }
 
-static char *get_available_data(void)
+static unsigned char *get_available_data(void)
 {
 	static int last_id = 0;
 	struct per_thread *t;
-	int i;
+	int i = last_id;
 
-	pthread_cond_signal(&tinfo[last_id].go);
+	printf("Main: Enter get_avail: last = i = %d/%d\n", last_id, i);
+
+	t = &tinfo[last_id];
+	pthread_mutex_lock(&t->lock);
+	t->ready = false;
+	pthread_mutex_unlock(&t->lock);
+	pthread_cond_signal(&t->go);
+	pthread_mutex_lock(&mtx);
 	while(true)	{
-		i = (i + 1) % nr_threads;
-		t = &tinfo[i];
-		if(t->ready)	{
-			last_id = i;
-			return t->data;
-		}
-	}
-}
+		printf("Main: wait for dataready\n");
+		pthread_cond_wait(&dataready, &mtx);
 
-/* Write @len bytes from @buf out to file descriptor @fd.
- * Return 1 on success, 0 on full device, exit on failure
- */
-static int write_block(int fd, unsigned char *buf)
-{
-	size_t written = 0;
-	ssize_t this_write = 0;
-
-	while(written < bufsize)	{
-
-		this_write = write(fd, buf + written, bufsize - written);
-
-		if(errno || this_write < 0)	{
-			if(errno == ENOSPC)	{
-				fputs("\nNo space left, exiting", stderr);
-				done = true;
-				return 0;
+		/* Checks if any are ready */
+		for(int n = 0; n < nr_threads; n++)	{
+			i = (i + 1) % nr_threads;
+			t = &tinfo[i];
+			if(t->ready)	{
+				last_id = i;
+				pthread_mutex_unlock(&mtx);
+				printf("Main: Got data - %d: unlock main & return\n", i);
+				return t->buf;
+			} else {
+				printf("Main: %d not ready", i);
 			}
-			perror("Writing data");
-			exit(EXIT_FAILURE);
 		}
-
-		written += this_write;
+		printf("No ready data\n");
 	}
-	return 1;
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -342,8 +333,8 @@ int main(int argc, char *argv[])
 	if(debug) fprintf(stderr, "Initalizing key with %ld bytes\n", klen);
 
 	/* First pass init key with 96 truly random bits */
-	read_random_bytes("/dev/random", tmpdata, 12);
-	rc4_init_key(&ctx, tmpdata, 12);
+	read_random_bytes("/dev/random", tmpdata, sizeof(tmpdata));
+	rc4_init_key(&ctx, tmpdata, sizeof(tmpdata));
 
 	setup_signals();
 
@@ -352,20 +343,29 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	/* Discard some keystream because beginning of RC4 is weaker?
+	 * I mean, we're not really doing crypto here, but whatever...
+	 */
+	rc4_fill_buf(&ctx, discard, sizeof(discard));
+
+	if(nr_threads > 1)	{
+		init_threads(&ctx);
+		for(int i = 0; i < nr_threads; i++)	{
+			pthread_create(&producers[i], NULL, worker_generator, (void *)i);
+		}
+	}
+
+
 	do {
 		read_random_bytes("/dev/urandom", key, klen);
 
 		/* Mix the state with more random bytes */
 		rc4_shuffle_key(&ctx, key, klen);
 
-		/* Discard some keystream because beginning of RC4 is weaker?
-		 * I mean, we're not really doing crypto here, but whatever...
-		 */
-		rc4_fill_buf(&ctx, discard, sizeof(discard));
 
 
 		for(n = 0; n < reps && !done; n++)	{
-			char *d;
+			unsigned char *d;
 			if(nr_threads > 1)	{
 				d = get_available_data();
 			} else {
@@ -373,7 +373,11 @@ int main(int argc, char *argv[])
 				d = data;
 			}
 
-			written += write_block(fd, d);
+			if(write_block(fd, d, bufsize) < 0)	{
+				done = true;
+			} else {
+				written++;
+			}
 
 			if(total > 0 && written >= total)
 				done = true;

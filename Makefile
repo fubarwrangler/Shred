@@ -1,5 +1,5 @@
-CFLAGS= -O3 -march=native -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
-#CFLAGS= -O3 -march=native -Wall -g -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+# CFLAGS= -O3 -march=native -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+CFLAGS= -Wall -g -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
 #LDFLAGS=-static
 LDFLAGS=
 PREFIX= /usr
@@ -9,7 +9,7 @@ all: shred rc4filter spin stride dist
 dist: dist.o cmdlineparse.o
 	$(CC) $(LDFLAGS) -o dist $^
 
-shred: rc4.o shred.o cmdlineparse.o
+shred: rc4.o shred.o shredutil.o cmdlineparse.o
 	$(CC) $(LDFLAGS) -lrt -pthread -o shred $^
 
 rc4filter: rc4.o rc4filter.o cmdlineparse.o
