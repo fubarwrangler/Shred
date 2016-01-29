@@ -217,7 +217,7 @@ static void *worker_generator(void *arg)
 		printf("prod-%d: Fill my buf (%p)\n", id, pt->buf);
 		rc4_fill_buf(pt->ctx, pt->buf, bufsize);
 		pt->ready = true;
-		printf("prod-%d: Waiting for global mtx to signal ready\n", id);
+		printf("prod-%d: Buf full, waiting for global mtx to signal ready\n", id);
 		pthread_mutex_lock(&mtx);
 		pthread_cond_signal(&dataready);
 		pthread_mutex_unlock(&mtx);
@@ -245,8 +245,6 @@ static unsigned char *get_available_data(void)
 	pthread_cond_signal(&t->go);
 	pthread_mutex_lock(&mtx);
 	while(true)	{
-		printf("Main: wait for dataready\n");
-		pthread_cond_wait(&dataready, &mtx);
 
 		/* Checks if any are ready */
 		for(int n = 0; n < nr_threads; n++)	{
@@ -261,7 +259,8 @@ static unsigned char *get_available_data(void)
 				printf("Main: %d not ready", i);
 			}
 		}
-		printf("No ready data\n");
+		printf("Main: no data ready -- wait for dataready\n");
+		pthread_cond_wait(&dataready, &mtx);
 	}
 }
 
