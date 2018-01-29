@@ -214,14 +214,14 @@ static void *worker_generator(void *arg)
 	pthread_mutex_lock(&pt->lock); /* L */
 	printf("prod-%d: Entering worker, locked mtx\n", id);
 	while(!done)	{
-		printf("prod-%d: Fill my buf (%p)\n", id, pt->buf);
+		// printf("prod-%d: Fill my buf (%p)\n", id, pt->buf);
 		rc4_fill_buf(pt->ctx, pt->buf, bufsize);
 		pt->ready = true;
-		printf("prod-%d: Buf full, waiting for global mtx to signal ready\n", id);
+		// printf("prod-%d: Buf full, waiting for global mtx to signal ready\n", id);
 		pthread_mutex_lock(&mtx);
 		pthread_cond_signal(&dataready);
 		pthread_mutex_unlock(&mtx);
-		printf("prod-%d: Ready signalled -- wait for my cond\n", id);
+		// printf("prod-%d: Ready signalled -- wait for my cond\n", id);
 		while(pt->ready)	{
 			pthread_cond_wait(&pt->go, &pt->lock); /* U ... L */
 		}
@@ -236,7 +236,7 @@ static unsigned char *get_available_data(void)
 	struct per_thread *t;
 	int i = last_id;
 
-	printf("Main: Enter get_avail: last = i = %d/%d\n", last_id, i);
+	// printf("Main: Enter get_avail: last = i = %d/%d\n", last_id, i);
 
 	t = &tinfo[last_id];
 	pthread_mutex_lock(&t->lock);
@@ -253,13 +253,13 @@ static unsigned char *get_available_data(void)
 			if(t->ready)	{
 				last_id = i;
 				pthread_mutex_unlock(&mtx);
-				printf("Main: Got data - %d: unlock main & return\n", i);
+				// printf("Main: Got data - %d: unlock main & return\n", i);
 				return t->buf;
 			} else {
-				printf("Main: %d not ready", i);
+				// printf("Main: %d not ready\n", i);
 			}
 		}
-		printf("Main: no data ready -- wait for dataready\n");
+		// printf("Main: no data ready -- wait for dataready\n");
 		pthread_cond_wait(&dataready, &mtx);
 	}
 }
@@ -372,7 +372,7 @@ int main(int argc, char *argv[])
 				d = data;
 			}
 
-			if(write_block(fd, d, bufsize) < 0)	{
+			if(write_block(fd, d, bufsize) == 0)	{
 				done = true;
 			} else {
 				written++;

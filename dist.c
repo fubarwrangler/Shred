@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <errno.h>
 
 #include "cmdlineparse.h"
 
@@ -111,7 +112,7 @@ int main(int argc, char *argv[])
 		total += n;
 	}
 
-	if(ferror(fp))	{
+	if(ferror(fp) && errno != EINTR)	{
 		fprintf(stderr, "File error occured\n");
 		return 1;
 	}
@@ -130,7 +131,7 @@ int main(int argc, char *argv[])
 	for(int j = 0; j < (1 << bitcount); j++)	{
 		int stat;
 		stat = (60 * arr[j]) / max;
-		printf("0x%.2x (%7.5f%%) |", j, 100.0f * (double)arr[j] / (double)norm);
+		printf("0x%.2x (%8.5f%%) |", j, 100.0f * (double)arr[j] / (double)norm);
 		for(int k = 0; k < stat; k++)	{
 			putchar('*');
 		}

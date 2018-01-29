@@ -1,5 +1,10 @@
-# CFLAGS= -O3 -march=native -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+DEBUG=0
+ifeq ($(DEBUG), 0)
+CFLAGS= -O3 -march=native -Wall -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+else
 CFLAGS= -Wall -g -pedantic -Wextra -std=c99 -D_POSIX_C_SOURCE=200112L
+endif
+
 #LDFLAGS=-static
 LDFLAGS=
 PREFIX= /usr
